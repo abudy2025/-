@@ -1,0 +1,1671 @@
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog
+from datetime import datetime
+import os
+import json
+from fpdf import FPDF
+import webbrowser
+import random
+import string
+import tempfile
+import win32print
+import win32api
+import sys
+
+class AccountingApp:
+    def __init__(self, root):
+        self.root = root
+        self.setup_ui()
+        self.load_data()
+        self.create_login_screen()
+        
+    def setup_ui(self):
+        self.root.title("برنامج المحاسبة المتكامل")
+        self.root.geometry("1200x800")
+        self.root.configure(bg='#f0f0f0')
+        
+        # إعداد نمط الأزرار
+        self.style = ttk.Style()
+        self.style.configure('TButton', font=('Arial', 12), padding=6)
+        self.style.configure('Header.TLabel', font=('Arial', 16, 'bold'), background='#f0f0f0')
+        
+        # بيانات التهيئة
+        self.current_user = None
+        self.invoice_counter = 1
+        self.products = []
+        self.customers = []
+        self.invoices = []
+        self.company_info = {
+            "name": "اسم الشركة",
+            "tax_id": "123456789",
+            "phone": "0123456789",
+            "email": "info@company.com",
+            "address": "عنوان الشركة",
+            "logo": ""
+        }
+    
+    def load_data(self):
+        try:
+            if os.path.exists("company_info.json"):
+                with open("company_info.json", "r", encoding="utf-8") as f:
+                    self.company_info = json.load(f)
+            
+            if os.path.exists("invoices.json"):
+                with open("invoices.json", "r", encoding="utf-8") as f:
+                    self.invoices = json.load(f)
+                    if self.invoices:
+                        last_invoice_num = max(int(inv["invoice_number"][2:]) for inv in self.invoices)
+                        self.invoice_counter = last_invoice_num + 1
+            
+            if os.path.exists("products.json"):
+                with open("products.json", "r", encoding="utf-8") as f:
+                    self.products = json.load(f)
+            
+            if os.path.exists("customers.json"):
+                with open("customers.json", "r", encoding="utf-8") as f:
+                    self.customers = json.load(f)
+        except Exception as e:
+            print(f"Error loading data: {e}")
+    
+    def save_data(self):
+        try:
+            with open("company_info.json", "w", encoding="utf-8") as f:
+                json.dump(self.company_info, f, ensure_ascii=False, indent=4)
+            
+            with open("invoices.json", "w", encoding="utf-8") as f:
+                json.dump(self.invoices, f, ensure_ascii=False, indent=4)
+            
+            with open("products.json", "w", encoding="utf-8") as f:
+                json.dump(self.products, f, ensure_ascii=False, indent=4)
+            
+            with open("customers.json", "w", encoding="utf-8") as f:
+                json.dump(self.customers, f, ensure_ascii=False, indent=4)
+        except Exception as e:
+            messagebox.showerror("خطأ", f"حدث خطأ أثناء حفظ البيانات: {e}")
+    
+    def clear_window(self):
+        for widget in self.root.winfo_children():
+            widget.destroy()
+    
+    def create_login_screen(self):
+        self.clear_window()
+        
+        login_frame = tk.Frame(self.root, bg='#f0f0f0', padx=20, pady=20)
+        login_frame.place(relx=0.5, rely=0.5, anchor='center')
+        
+        ttk.Label(login_frame, text="تسجيل الدخول", style='Header.TLabel').grid(row=0, column=0, columnspan=2, pady=20)
+        
+        ttk.Label(login_frame, text="اسم المستخدم:", background='#f0f0f0').grid(row=1, column=0, sticky='e', padx=5, pady=5)
+        self.username_entry = ttk.Entry(login_frame, font=('Arial', 12))
+        self.username_entry.grid(row=1, column=1, padx=5, pady=5)
+        
+        ttk.Label(login_frame, text="كلمة المرور:", background='#f0f0f0').grid(row=2, column=0, sticky='e', padx=5, pady=5)
+        self.password_entry = ttk.Entry(login_frame, show="*", font=('Arial', 12))
+        self.password_entry.grid(row=2, column=1, padx=5, pady=5)
+        
+        login_btn = ttk.Button(login_frame, text="دخول", command=self.login)
+        login_btn.grid(row=3, column=0, columnspan=2, pady=20)
+        
+        # ضبط التركيز على حقل اسم المستخدم
+        self.username_entry.focus_set()
+        
+        # ربط زر الإدخال (Enter) بعملية الدخول
+        self.root.bind('<Return>', lambda event: self.login())
+    
+    def login(self):
+        username = self.username_entry.get()
+        password = self.password_entry.get()
+        
+        if username == "admin" and password == "admin":
+            self.current_user = username
+            self.create_main_screen()
+        else:
+            messagebox.showerror("خطأ", "اسم المستخدم أو كلمة المرور غير صحيحة")
+            self.password_entry.delete(0, 'end')
+            self.username_entry.focus_set()
+    
+    def create_main_screen(self):
+        self.clear_window()
+        
+        # إنشاء شريط القوائم
+        menubar = tk.Menu(self.root)
+        
+        # قائمة ملف
+        file_menu = tk.Menu(menubar, tearoff=0)
+        file_menu.add_command(label="حفظ البيانات", command=self.save_data)
+        file_menu.add_separator()
+        file_menu.add_command(label="خروج", command=self.root.quit)
+        menubar.add_cascade(label="ملف", menu=file_menu)
+        
+        # قائمة الفواتير
+        invoice_menu = tk.Menu(menubar, tearoff=0)
+        invoice_menu.add_command(label="فاتورة جديدة", command=self.create_new_invoice)
+        invoice_menu.add_command(label="استعراض الفواتير", command=self.show_invoices_list)
+        menubar.add_cascade(label="الفواتير", menu=invoice_menu)
+        
+        # قائمة المخزون
+        inventory_menu = tk.Menu(menubar, tearoff=0)
+        inventory_menu.add_command(label="إدارة المنتجات", command=self.show_inventory_menu)
+        menubar.add_cascade(label="المخزون", menu=inventory_menu)
+        
+        # قائمة التقارير
+        reports_menu = tk.Menu(menubar, tearoff=0)
+        reports_menu.add_command(label="تقارير المبيعات", command=self.show_reports_menu)
+        menubar.add_cascade(label="التقارير", menu=reports_menu)
+        
+        self.root.config(menu=menubar)
+        
+        # إنشاء واجهة الرئيسية
+        main_frame = tk.Frame(self.root, bg='#f0f0f0')
+        main_frame.pack(fill='both', expand=True, padx=20, pady=20)
+        
+        ttk.Label(main_frame, text="الرئيسية", style='Header.TLabel').pack(pady=20)
+        
+        # أزرار الوظائف الرئيسية
+        buttons_frame = tk.Frame(main_frame, bg='#f0f0f0')
+        buttons_frame.pack(pady=20)
+        
+        btn1 = ttk.Button(buttons_frame, text="إنشاء فاتورة", command=self.create_new_invoice, width=20)
+        btn1.grid(row=0, column=0, padx=10, pady=10)
+        
+        btn2 = ttk.Button(buttons_frame, text="إدارة المنتجات", command=self.show_inventory_menu, width=20)
+        btn2.grid(row=0, column=1, padx=10, pady=10)
+        
+        btn3 = ttk.Button(buttons_frame, text="تقارير المبيعات", command=self.show_reports_menu, width=20)
+        btn3.grid(row=1, column=0, padx=10, pady=10)
+        
+        btn4 = ttk.Button(buttons_frame, text="إعدادات الشركة", command=self.show_company_settings, width=20)
+        btn4.grid(row=1, column=1, padx=10, pady=10)
+        
+        # معلومات الجلسة
+        session_frame = tk.Frame(main_frame, bg='#f0f0f0')
+        session_frame.pack(side='bottom', pady=20)
+        
+        ttk.Label(session_frame, text=f"المستخدم: {self.current_user}", background='#f0f0f0').pack(side='left', padx=10)
+        ttk.Label(session_frame, text=datetime.now().strftime("%Y/%m/%d %H:%M"), background='#f0f0f0').pack(side='right', padx=10)
+    
+    def show_company_settings(self):
+        self.clear_window()
+        
+        settings_frame = tk.Frame(self.root, bg='#f0f0f0', padx=20, pady=20)
+        settings_frame.pack(fill='both', expand=True)
+        
+        ttk.Label(settings_frame, text="إعدادات الشركة", style='Header.TLabel').grid(row=0, column=0, columnspan=2, pady=20)
+        
+        # حقول الإدخال
+        fields = [
+            ("اسم الشركة:", "name"),
+            ("الرقم الضريبي:", "tax_id"),
+            ("الهاتف:", "phone"),
+            ("البريد الإلكتروني:", "email"),
+            ("العنوان:", "address"),
+            ("مسار الشعار (اختياري):", "logo")
+        ]
+        
+        self.settings_entries = {}
+        
+        for i, (label, key) in enumerate(fields, start=1):
+            ttk.Label(settings_frame, text=label, background='#f0f0f0').grid(row=i, column=0, sticky='e', pady=5)
+            entry = ttk.Entry(settings_frame, font=('Arial', 12))
+            entry.grid(row=i, column=1, padx=5, pady=5, sticky='ew')
+            entry.insert(0, self.company_info.get(key, ""))
+            self.settings_entries[key] = entry
+        
+        # زر اختيار ملف الشعار
+        browse_btn = ttk.Button(settings_frame, text="استعراض...", command=self.browse_logo)
+        browse_btn.grid(row=6, column=1, sticky='e', pady=5)
+        
+        # أزرار الحفظ والعودة
+        buttons_frame = tk.Frame(settings_frame, bg='#f0f0f0')
+        buttons_frame.grid(row=7, column=0, columnspan=2, pady=20)
+        
+        save_btn = ttk.Button(buttons_frame, text="حفظ", command=self.save_company_settings)
+        save_btn.pack(side='right', padx=10)
+        
+        back_btn = ttk.Button(buttons_frame, text="عودة", command=self.create_main_screen)
+        back_btn.pack(side='left', padx=10)
+    
+    def browse_logo(self):
+        file_path = filedialog.askopenfilename(filetypes=[("Image Files", "*.png;*.jpg;*.jpeg")])
+        if file_path:
+            self.settings_entries['logo'].delete(0, 'end')
+            self.settings_entries['logo'].insert(0, file_path)
+    
+    def save_company_settings(self):
+        for key, entry in self.settings_entries.items():
+            self.company_info[key] = entry.get()
+        
+        self.save_data()
+        messagebox.showinfo("نجاح", "تم حفظ إعدادات الشركة بنجاح")
+        self.create_main_screen()
+    
+    def create_new_invoice(self):
+        self.clear_window()
+        
+        main_frame = tk.Frame(self.root, bg='#f0f0f0')
+        main_frame.pack(fill='both', expand=True, padx=10, pady=10)
+        
+        # إطار العنوان
+        header_frame = tk.Frame(main_frame, bg='#f0f0f0')
+        header_frame.pack(fill='x', pady=10)
+        
+        ttk.Label(header_frame, text="فاتورة بيع جديدة", style='Header.TLabel').pack()
+        
+        # إطار معلومات الفاتورة
+        info_frame = tk.Frame(main_frame, bg='#f0f0f0')
+        info_frame.pack(fill='x', pady=10)
+        
+        invoice_number = f"IN{self.invoice_counter:03d}"
+        invoice_date = datetime.now().strftime("%Y/%m/%d %H:%M")
+        
+        ttk.Label(info_frame, text=f"رقم الفاتورة: {invoice_number}", background='#f0f0f0').pack(side='right', padx=10)
+        ttk.Label(info_frame, text=f"التاريخ: {invoice_date}", background='#f0f0f0').pack(side='left', padx=10)
+        
+        # إطار العميل والشركة
+        details_frame = tk.Frame(main_frame, bg='#f0f0f0')
+        details_frame.pack(fill='x', pady=10)
+        
+        # معلومات العميل
+        customer_frame = ttk.LabelFrame(details_frame, text="معلومات العميل", padding=10)
+        customer_frame.pack(side='right', fill='both', expand=True, padx=5)
+        
+        ttk.Label(customer_frame, text="اسم العميل:").grid(row=0, column=0, sticky='e', pady=5)
+        self.customer_name_entry = ttk.Entry(customer_frame)
+        self.customer_name_entry.grid(row=0, column=1, padx=5, pady=5)
+        
+        ttk.Label(customer_frame, text="رقم الهاتف:").grid(row=1, column=0, sticky='e', pady=5)
+        self.customer_phone_entry = ttk.Entry(customer_frame)
+        self.customer_phone_entry.grid(row=1, column=1, padx=5, pady=5)
+        
+        ttk.Label(customer_frame, text="الرقم الضريبي:").grid(row=2, column=0, sticky='e', pady=5)
+        self.customer_tax_entry = ttk.Entry(customer_frame)
+        self.customer_tax_entry.grid(row=2, column=1, padx=5, pady=5)
+        
+        # معلومات الشركة
+        company_frame = ttk.LabelFrame(details_frame, text="معلومات الشركة", padding=10)
+        company_frame.pack(side='left', fill='both', expand=True, padx=5)
+        
+        ttk.Label(company_frame, text="اسم الشركة:").grid(row=0, column=0, sticky='e', pady=5)
+        ttk.Label(company_frame, text=self.company_info['name'], background='#f0f0f0').grid(row=0, column=1, sticky='w', pady=5)
+        
+        ttk.Label(company_frame, text="الرقم الضريبي:").grid(row=1, column=0, sticky='e', pady=5)
+        ttk.Label(company_frame, text=self.company_info['tax_id'], background='#f0f0f0').grid(row=1, column=1, sticky='w', pady=5)
+        
+        ttk.Label(company_frame, text="الهاتف:").grid(row=2, column=0, sticky='e', pady=5)
+        ttk.Label(company_frame, text=self.company_info['phone'], background='#f0f0f0').grid(row=2, column=1, sticky='w', pady=5)
+        
+        # إطار الأصناف
+        items_frame = ttk.LabelFrame(main_frame, text="أصناف الفاتورة", padding=10)
+        items_frame.pack(fill='both', expand=True, pady=10)
+        
+        # جدول الأصناف
+        columns = ("#", "الصنف", "الكمية", "السعر", "الضريبة %", "الإجمالي")
+        self.invoice_tree = ttk.Treeview(items_frame, columns=columns, show='headings', height=8)
+        
+        for col in columns:
+            self.invoice_tree.heading(col, text=col)
+            self.invoice_tree.column(col, width=100, anchor='center')
+        
+        self.invoice_tree.pack(fill='both', expand=True)
+        
+        # شريط التمرير
+        scrollbar = ttk.Scrollbar(items_frame, orient='vertical', command=self.invoice_tree.yview)
+        scrollbar.pack(side='right', fill='y')
+        self.invoice_tree.configure(yscrollcommand=scrollbar.set)
+        
+        # إطار إدارة الأصناف
+        item_controls = tk.Frame(items_frame, bg='#f0f0f0')
+        item_controls.pack(fill='x', pady=10)
+        
+        ttk.Button(item_controls, text="إضافة من المخزون", command=self.add_from_inventory).pack(side='right', padx=5)
+        ttk.Button(item_controls, text="إضافة صنف جديد", command=self.add_manual_item).pack(side='right', padx=5)
+        ttk.Button(item_controls, text="حذف الصنف", command=self.delete_item).pack(side='right', padx=5)
+        ttk.Button(item_controls, text="تعديل الصنف", command=self.edit_item).pack(side='right', padx=5)
+        
+        # إطار الإجماليات
+        totals_frame = tk.Frame(main_frame, bg='#f0f0f0')
+        totals_frame.pack(fill='x', pady=10)
+        
+        ttk.Label(totals_frame, text="الإجمالي بدون ضريبة:", background='#f0f0f0').pack(side='right', padx=10)
+        self.subtotal_var = tk.StringVar(value="0.00")
+        ttk.Label(totals_frame, textvariable=self.subtotal_var, background='#f0f0f0').pack(side='right', padx=10)
+        
+        ttk.Label(totals_frame, text="الضريبة:", background='#f0f0f0').pack(side='right', padx=10)
+        self.tax_var = tk.StringVar(value="0.00")
+        ttk.Label(totals_frame, textvariable=self.tax_var, background='#f0f0f0').pack(side='right', padx=10)
+        
+        ttk.Label(totals_frame, text="الإجمالي مع الضريبة:", background='#f0f0f0', font=('Arial', 12, 'bold')).pack(side='right', padx=10)
+        self.total_var = tk.StringVar(value="0.00")
+        ttk.Label(totals_frame, textvariable=self.total_var, background='#f0f0f0', font=('Arial', 12, 'bold')).pack(side='right', padx=10)
+        
+        # أزرار التحكم
+        controls_frame = tk.Frame(main_frame, bg='#f0f0f0')
+        controls_frame.pack(fill='x', pady=10)
+        
+        ttk.Button(controls_frame, text="حفظ الفاتورة", command=lambda: self.save_invoice(invoice_number)).pack(side='right', padx=10)
+        ttk.Button(controls_frame, text="طباعة الفاتورة", command=self.print_invoice).pack(side='right', padx=10)
+        ttk.Button(controls_frame, text="حفظ كـ PDF", command=self.save_invoice_pdf).pack(side='right', padx=10)
+        ttk.Button(controls_frame, text="عودة", command=self.create_main_screen).pack(side='left', padx=10)
+    
+    def add_from_inventory(self):
+        # نافذة اختيار المنتجات من المخزون
+        inventory_window = tk.Toplevel(self.root)
+        inventory_window.title("اختيار من المخزون")
+        inventory_window.geometry("800x500")
+        
+        # إطار البحث
+        search_frame = tk.Frame(inventory_window)
+        search_frame.pack(pady=10)
+        
+        ttk.Label(search_frame, text="بحث:").pack(side='left', padx=5)
+        search_entry = ttk.Entry(search_frame, width=30)
+        search_entry.pack(side='left', padx=5)
+        search_entry.focus()
+        
+        ttk.Button(search_frame, text="بحث", command=lambda: self.search_inventory(search_entry.get())).pack(side='left', padx=5)
+        
+        # جدول المخزون
+        columns = ("الباركود", "اسم المنتج", "السعر", "الكمية", "الضريبة %")
+        self.inventory_tree = ttk.Treeview(inventory_window, columns=columns, show='headings', height=15)
+        
+        for col in columns:
+            self.inventory_tree.heading(col, text=col)
+            self.inventory_tree.column(col, width=120, anchor='center')
+        
+        self.inventory_tree.pack(fill='both', expand=True, padx=10, pady=10)
+        
+        # تعبئة الجدول
+        self.refresh_inventory_table()
+        
+        # إطار الكمية
+        qty_frame = tk.Frame(inventory_window)
+        qty_frame.pack(pady=10)
+        
+        ttk.Label(qty_frame, text="الكمية:").pack(side='left', padx=5)
+        qty_entry = ttk.Entry(qty_frame, width=10)
+        qty_entry.pack(side='left', padx=5)
+        qty_entry.insert(0, "1")
+        
+        # أزرار الإضافة والإغلاق
+        btn_frame = tk.Frame(inventory_window)
+        btn_frame.pack(pady=10)
+        
+        ttk.Button(btn_frame, text="إضافة المنتج المحدد", 
+                  command=lambda: self.add_selected_product(qty_entry.get(), inventory_window)).pack(side='right', padx=10)
+        ttk.Button(btn_frame, text="إغلاق", command=inventory_window.destroy).pack(side='left', padx=10)
+    
+    def search_inventory(self, query):
+        # مسح الجدول الحالي
+        for item in self.inventory_tree.get_children():
+            self.inventory_tree.delete(item)
+        
+        # البحث في المخزون
+        for product in self.products:
+            if query.lower() in product['name'].lower() or query in product['barcode']:
+                self.inventory_tree.insert('', 'end', values=(
+                    product['barcode'],
+                    product['name'],
+                    f"{product['sale_price']:.2f}",
+                    product['quantity'],
+                    product['tax']
+                ))
+    
+    def refresh_inventory_table(self):
+        # مسح الجدول الحالي
+        for item in self.inventory_tree.get_children():
+            self.inventory_tree.delete(item)
+        
+        # تعبئة الجدول بالمنتجات
+        for product in self.products:
+            self.inventory_tree.insert('', 'end', values=(
+                product['barcode'],
+                product['name'],
+                f"{product['sale_price']:.2f}",
+                product['quantity'],
+                product['tax']
+            ))
+    
+    def add_selected_product(self, qty_str, window):
+        try:
+            qty = int(qty_str)
+            if qty <= 0:
+                messagebox.showerror("خطأ", "الكمية يجب أن تكون أكبر من الصفر")
+                return
+        except ValueError:
+            messagebox.showerror("خطأ", "الكمية يجب أن تكون رقماً صحيحاً")
+            return
+        
+        selected_item = self.inventory_tree.selection()
+        if not selected_item:
+            messagebox.showerror("خطأ", "يجب تحديد منتج من المخزون")
+            return
+        
+        item = self.inventory_tree.item(selected_item[0])['values']
+        barcode = item[0]
+        
+        # البحث عن المنتج في المخزون
+        for product in self.products:
+            if product['barcode'] == barcode:
+                price = product['sale_price']
+                tax_percent = product['tax']
+                tax_amount = (price * qty) * (tax_percent / 100)
+                total = (price * qty) + tax_amount
+                
+                # إضافة العنصر إلى الفاتورة
+                item_num = len(self.invoice_tree.get_children()) + 1
+                self.invoice_tree.insert('', 'end', values=(
+                    item_num,
+                    product['name'],
+                    qty,
+                    f"{price:.2f}",
+                    f"{tax_percent}%",
+                    f"{total:.2f}"
+                ))
+                
+                # تحديث الإجماليات
+                self.update_totals()
+                window.destroy()
+                break
+    
+    def add_manual_item(self):
+        # نافذة إضافة صنف يدوي
+        add_window = tk.Toplevel(self.root)
+        add_window.title("إضافة صنف جديد")
+        add_window.geometry("400x300")
+        
+        # حقول الإدخال
+        ttk.Label(add_window, text="اسم الصنف:").grid(row=0, column=0, padx=10, pady=10, sticky='e')
+        name_entry = ttk.Entry(add_window)
+        name_entry.grid(row=0, column=1, padx=10, pady=10, sticky='ew')
+        
+        ttk.Label(add_window, text="الكمية:").grid(row=1, column=0, padx=10, pady=10, sticky='e')
+        qty_entry = ttk.Entry(add_window)
+        qty_entry.grid(row=1, column=1, padx=10, pady=10, sticky='ew')
+        qty_entry.insert(0, "1")
+        
+        ttk.Label(add_window, text="السعر:").grid(row=2, column=0, padx=10, pady=10, sticky='e')
+        price_entry = ttk.Entry(add_window)
+        price_entry.grid(row=2, column=1, padx=10, pady=10, sticky='ew')
+        
+        ttk.Label(add_window, text="الضريبة %:").grid(row=3, column=0, padx=10, pady=10, sticky='e')
+        tax_entry = ttk.Entry(add_window)
+        tax_entry.grid(row=3, column=1, padx=10, pady=10, sticky='ew')
+        tax_entry.insert(0, "15")
+        
+        # أزرار الإضافة والإغلاق
+        btn_frame = tk.Frame(add_window)
+        btn_frame.grid(row=4, column=0, columnspan=2, pady=10)
+        
+        ttk.Button(btn_frame, text="إضافة", command=lambda: self.add_item_to_invoice(
+            name_entry.get(),
+            qty_entry.get(),
+            price_entry.get(),
+            tax_entry.get(),
+            add_window
+        )).pack(side='right', padx=10)
+        
+        ttk.Button(btn_frame, text="إغلاق", command=add_window.destroy).pack(side='left', padx=10)
+    
+    def add_item_to_invoice(self, name, qty_str, price_str, tax_str, window):
+        try:
+            qty = int(qty_str)
+            price = float(price_str)
+            tax_percent = float(tax_str)
+            
+            if qty <= 0 or price <= 0 or tax_percent < 0:
+                messagebox.showerror("خطأ", "القيم يجب أن تكون أكبر من الصفر")
+                return
+                
+            tax_amount = (price * qty) * (tax_percent / 100)
+            total = (price * qty) + tax_amount
+            
+            # إضافة العنصر إلى الفاتورة
+            item_num = len(self.invoice_tree.get_children()) + 1
+            self.invoice_tree.insert('', 'end', values=(
+                item_num,
+                name,
+                qty,
+                f"{price:.2f}",
+                f"{tax_percent}%",
+                f"{total:.2f}"
+            ))
+            
+            # تحديث الإجماليات
+            self.update_totals()
+            window.destroy()
+            
+        except ValueError:
+            messagebox.showerror("خطأ", "يجب إدخال قيم رقمية صحيحة")
+    
+    def delete_item(self):
+        selected_item = self.invoice_tree.selection()
+        if not selected_item:
+            messagebox.showerror("خطأ", "يجب تحديد صنف للحذف")
+            return
+        
+        self.invoice_tree.delete(selected_item)
+        
+        # إعادة ترقيم العناصر
+        for i, child in enumerate(self.invoice_tree.get_children(), 1):
+            self.invoice_tree.item(child, values=(i,) + self.invoice_tree.item(child)['values'][1:])
+        
+        # تحديث الإجماليات
+        self.update_totals()
+    
+    def edit_item(self):
+        selected_item = self.invoice_tree.selection()
+        if not selected_item:
+            messagebox.showerror("خطأ", "يجب تحديد صنف للتعديل")
+            return
+        
+        item = self.invoice_tree.item(selected_item)['values']
+        
+        # نافذة التعديل
+        edit_window = tk.Toplevel(self.root)
+        edit_window.title("تعديل صنف الفاتورة")
+        edit_window.geometry("400x300")
+        
+        # حقول الإدخال
+        ttk.Label(edit_window, text="اسم الصنف:").grid(row=0, column=0, padx=10, pady=10, sticky='e')
+        name_entry = ttk.Entry(edit_window)
+        name_entry.grid(row=0, column=1, padx=10, pady=10, sticky='ew')
+        name_entry.insert(0, item[1])
+        
+        ttk.Label(edit_window, text="الكمية:").grid(row=1, column=0, padx=10, pady=10, sticky='e')
+        qty_entry = ttk.Entry(edit_window)
+        qty_entry.grid(row=1, column=1, padx=10, pady=10, sticky='ew')
+        qty_entry.insert(0, item[2])
+        
+        ttk.Label(edit_window, text="السعر:").grid(row=2, column=0, padx=10, pady=10, sticky='e')
+        price_entry = ttk.Entry(edit_window)
+        price_entry.grid(row=2, column=1, padx=10, pady=10, sticky='ew')
+        price_entry.insert(0, item[3])
+        
+        ttk.Label(edit_window, text="الضريبة %:").grid(row=3, column=0, padx=10, pady=10, sticky='e')
+        tax_entry = ttk.Entry(edit_window)
+        tax_entry.grid(row=3, column=1, padx=10, pady=10, sticky='ew')
+        tax_entry.insert(0, item[4][:-1])  # إزالة علامة %
+        
+        # أزرار التحديث والإغلاق
+        btn_frame = tk.Frame(edit_window)
+        btn_frame.grid(row=4, column=0, columnspan=2, pady=10)
+        
+        ttk.Button(btn_frame, text="تحديث", command=lambda: self.update_invoice_item(
+            selected_item,
+            name_entry.get(),
+            qty_entry.get(),
+            price_entry.get(),
+            tax_entry.get(),
+            edit_window
+        )).pack(side='right', padx=10)
+        
+        ttk.Button(btn_frame, text="إغلاق", command=edit_window.destroy).pack(side='left', padx=10)
+    
+    def update_invoice_item(self, item_id, name, qty_str, price_str, tax_str, window):
+        try:
+            qty = int(qty_str)
+            price = float(price_str)
+            tax_percent = float(tax_str)
+            
+            if qty <= 0 or price <= 0 or tax_percent < 0:
+                messagebox.showerror("خطأ", "القيم يجب أن تكون أكبر من الصفر")
+                return
+                
+            tax_amount = (price * qty) * (tax_percent / 100)
+            total = (price * qty) + tax_amount
+            
+            # تحديث العنصر في الفاتورة
+            item_num = self.invoice_tree.item(item_id)['values'][0]
+            self.invoice_tree.item(item_id, values=(
+                item_num,
+                name,
+                qty,
+                f"{price:.2f}",
+                f"{tax_percent}%",
+                f"{total:.2f}"
+            ))
+            
+            # تحديث الإجماليات
+            self.update_totals()
+            window.destroy()
+            
+        except ValueError:
+            messagebox.showerror("خطأ", "يجب إدخال قيم رقمية صحيحة")
+    
+    def update_totals(self):
+        subtotal = 0.0
+        tax_total = 0.0
+        
+        for child in self.invoice_tree.get_children():
+            item = self.invoice_tree.item(child)['values']
+            price = float(item[3])
+            qty = int(item[2])
+            tax_percent = float(item[4][:-1])
+            
+            subtotal += price * qty
+            tax_total += (price * qty) * (tax_percent / 100)
+        
+        total = subtotal + tax_total
+        
+        self.subtotal_var.set(f"{subtotal:.2f}")
+        self.tax_var.set(f"{tax_total:.2f}")
+        self.total_var.set(f"{total:.2f}")
+    
+    def save_invoice(self, invoice_number):
+        if not self.invoice_tree.get_children():
+            messagebox.showerror("خطأ", "لا يمكن حفظ فاتورة بدون أصناف")
+            return
+        
+        if not self.customer_name_entry.get():
+            messagebox.showerror("خطأ", "يجب إدخال اسم العميل")
+            self.customer_name_entry.focus_set()
+            return
+        
+        invoice_date = datetime.now().strftime("%Y/%m/%d %H:%M")
+        
+        customer = {
+            "name": self.customer_name_entry.get(),
+            "phone": self.customer_phone_entry.get() or "غير محدد",
+            "tax_id": self.customer_tax_entry.get() or "غير محدد"
+        }
+        
+        items = []
+        for child in self.invoice_tree.get_children():
+            item = self.invoice_tree.item(child)['values']
+            items.append({
+                "name": item[1],
+                "quantity": int(item[2]),
+                "price": float(item[3]),
+                "tax_percent": float(item[4][:-1]),
+                "total": float(item[5])
+            })
+        
+        invoice = {
+            "invoice_number": invoice_number,
+            "date": invoice_date,
+            "customer": customer,
+            "items": items,
+            "subtotal": float(self.subtotal_var.get()),
+            "tax": float(self.tax_var.get()),
+            "total": float(self.total_var.get())
+        }
+        
+        self.invoices.append(invoice)
+        self.invoice_counter += 1
+        self.save_data()
+        
+        # عرض خيارات بعد الحفظ
+        choice = messagebox.askyesnocancel("نجاح", 
+            "تم حفظ الفاتورة بنجاح.\n\nهل تريد طباعة الفاتورة الآن؟\n(نعم للطباعة، لا لحفظ PDF، إلغاء للعودة)")
+        
+        if choice is True:
+            self.print_invoice()
+        elif choice is False:
+            self.save_invoice_pdf()
+        else:
+            self.create_main_screen()
+    
+    def save_invoice_pdf(self):
+        if not self.invoice_tree.get_children():
+            messagebox.showerror("خطأ", "لا يمكن حفظ فاتورة بدون أصناف")
+            return
+        
+        # إنشاء ملف PDF
+        pdf = FPDF()
+        pdf.add_page()
+        
+        # إعداد الخط (يجب تثبيت خط يدعم العربية مثل DejaVuSans)
+        try:
+            pdf.add_font('DejaVu', '', 'DejaVuSansCondensed.ttf', uni=True)
+            pdf.set_font('DejaVu', '', 14)
+        except:
+            pdf.add_font('Arial', '', 'arial.ttf', uni=True)
+            pdf.set_font('Arial', '', 14)
+        
+        # إضافة شعار الشركة إذا موجود
+        if self.company_info.get('logo') and os.path.exists(self.company_info['logo']):
+            pdf.image(self.company_info['logo'], x=10, y=8, w=30)
+            pdf.set_y(40)
+        
+        # معلومات الشركة
+        pdf.cell(0, 10, txt=self.company_info['name'], ln=1, align='C')
+        pdf.set_font_size(12)
+        pdf.cell(0, 8, txt=f"الرقم الضريبي: {self.company_info['tax_id']}", ln=1, align='C')
+        pdf.cell(0, 8, txt=f"الهاتف: {self.company_info['phone']}", ln=1, align='C')
+        pdf.cell(0, 8, txt=f"العنوان: {self.company_info['address']}", ln=1, align='C')
+        pdf.ln(10)
+        
+        # معلومات الفاتورة
+        invoice_number = f"IN{self.invoice_counter-1:03d}"
+        invoice_date = datetime.now().strftime("%Y/%m/%d %H:%M")
+        
+        pdf.set_font_size(14)
+        pdf.cell(0, 10, txt="فاتورة بيع", ln=1, align='C')
+        pdf.set_font_size(12)
+        pdf.cell(95, 8, txt=f"رقم الفاتورة: {invoice_number}", ln=0, align='R')
+        pdf.cell(95, 8, txt=f"التاريخ: {invoice_date}", ln=1, align='R')
+        pdf.ln(10)
+        
+        # معلومات العميل
+        pdf.cell(0, 8, txt=f"العميل: {self.customer_name_entry.get()}", ln=1, align='R')
+        pdf.cell(0, 8, txt=f"الهاتف: {self.customer_phone_entry.get() or 'غير محدد'}", ln=1, align='R')
+        pdf.cell(0, 8, txt=f"الرقم الضريبي: {self.customer_tax_entry.get() or 'غير محدد'}", ln=1, align='R')
+        pdf.ln(10)
+        
+        # جدول الأصناف
+        pdf.set_font_size(10)
+        
+        # عناوين الأعمدة
+        pdf.set_fill_color(200, 220, 255)
+        pdf.cell(15, 10, txt="#", border=1, align='C', fill=True)
+        pdf.cell(75, 10, txt="الصنف", border=1, align='C', fill=True)
+        pdf.cell(20, 10, txt="الكمية", border=1, align='C', fill=True)
+        pdf.cell(30, 10, txt="السعر", border=1, align='C', fill=True)
+        pdf.cell(25, 10, txt="الضريبة %", border=1, align='C', fill=True)
+        pdf.cell(25, 10, txt="الإجمالي", border=1, align='C', fill=True, ln=1)
+        
+        # بيانات الأصناف
+        pdf.set_fill_color(255, 255, 255)
+        for child in self.invoice_tree.get_children():
+            item = self.invoice_tree.item(child)['values']
+            pdf.cell(15, 8, txt=str(item[0]), border=1, align='C')
+            pdf.cell(75, 8, txt=item[1], border=1, align='R')
+            pdf.cell(20, 8, txt=str(item[2]), border=1, align='C')
+            pdf.cell(30, 8, txt=item[3], border=1, align='C')
+            pdf.cell(25, 8, txt=item[4], border=1, align='C')
+            pdf.cell(25, 8, txt=item[5], border=1, align='C', ln=1)
+        
+        pdf.ln(10)
+        
+        # الإجماليات
+        pdf.set_font_size(12)
+        pdf.cell(135, 8, txt="الإجمالي بدون ضريبة:", align='R')
+        pdf.cell(25, 8, txt=self.subtotal_var.get(), align='R', ln=1)
+        pdf.cell(135, 8, txt="الضريبة:", align='R')
+        pdf.cell(25, 8, txt=self.tax_var.get(), align='R', ln=1)
+        pdf.set_font_size(14)
+        pdf.cell(135, 10, txt="الإجمالي مع الضريبة:", align='R')
+        pdf.cell(25, 10, txt=self.total_var.get(), align='R', ln=1)
+        
+        # تذييل الصفحة
+        pdf.set_y(-20)
+        pdf.set_font_size(10)
+        pdf.cell(0, 8, txt="شكراً لتعاملكم معنا", ln=1, align='C')
+        pdf.cell(0, 8, txt=f"للاستفسار يرجى الاتصال على: {self.company_info['phone']}", ln=1, align='C')
+        
+        # حفظ الملف
+        default_filename = f"invoice_{invoice_number}.pdf"
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF Files", "*.pdf")],
+            initialfile=default_filename
+        )
+        
+        if file_path:
+            pdf.output(file_path)
+            messagebox.showinfo("نجاح", f"تم حفظ الفاتورة كملف PDF في:\n{file_path}")
+            webbrowser.open(file_path)
+    
+    def print_invoice(self):
+        try:
+            # إنشاء ملف PDF مؤقت
+            temp_pdf = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+            temp_pdf_path = temp_pdf.name
+            temp_pdf.close()
+            
+            # إنشاء PDF بنفس طريقة حفظ PDF
+            pdf = FPDF()
+            pdf.add_page()
+            
+            try:
+                pdf.add_font('DejaVu', '', 'DejaVuSansCondensed.ttf', uni=True)
+                pdf.set_font('DejaVu', '', 14)
+            except:
+                pdf.add_font('Arial', '', 'arial.ttf', uni=True)
+                pdf.set_font('Arial', '', 14)
+            
+            # [نفس محتوى دالة save_invoice_pdf هنا...]
+            
+            pdf.output(temp_pdf_path)
+            
+            # الطباعة باستخدام الطابعة الافتراضية
+            printer_name = win32print.GetDefaultPrinter()
+            win32api.ShellExecute(
+                0,
+                "print",
+                temp_pdf_path,
+                f'/d:"{printer_name}"',
+                ".",
+                0
+            )
+            
+            messagebox.showinfo("نجاح", "تم إرسال الفاتورة إلى الطابعة بنجاح")
+            
+            # حذف الملف المؤقت بعد 5 ثواني
+            self.root.after(5000, lambda: os.unlink(temp_pdf_path))
+            
+        except Exception as e:
+            messagebox.showerror("خطأ", f"حدث خطأ أثناء الطباعة: {str(e)}")
+            if os.path.exists(temp_pdf_path):
+                os.unlink(temp_pdf_path)
+    
+    def show_invoices_list(self):
+        self.clear_window()
+        
+        main_frame = tk.Frame(self.root, bg='#f0f0f0')
+        main_frame.pack(fill='both', expand=True, padx=10, pady=10)
+        
+        ttk.Label(main_frame, text="قائمة الفواتير", style='Header.TLabel').pack(pady=10)
+        
+        # إطار البحث
+        search_frame = tk.Frame(main_frame, bg='#f0f0f0')
+        search_frame.pack(fill='x', pady=10)
+        
+        ttk.Label(search_frame, text="بحث:", background='#f0f0f0').pack(side='left', padx=5)
+        self.search_entry = ttk.Entry(search_frame, width=30)
+        self.search_entry.pack(side='left', padx=5)
+        self.search_entry.bind('<KeyRelease>', lambda e: self.search_invoices())
+        
+        ttk.Button(search_frame, text="عرض الكل", command=self.load_invoices).pack(side='left', padx=5)
+        
+        # جدول الفواتير
+        columns = ("رقم الفاتورة", "التاريخ", "اسم العميل", "عدد الأصناف", "الإجمالي")
+        self.invoices_tree = ttk.Treeview(main_frame, columns=columns, show='headings', height=15)
+        
+        for col in columns:
+            self.invoices_tree.heading(col, text=col)
+            self.invoices_tree.column(col, width=120, anchor='center')
+        
+        self.invoices_tree.pack(fill='both', expand=True, padx=10, pady=10)
+        
+        # شريط التمرير
+        scrollbar = ttk.Scrollbar(main_frame, orient='vertical', command=self.invoices_tree.yview)
+        scrollbar.pack(side='right', fill='y')
+        self.invoices_tree.configure(yscrollcommand=scrollbar.set)
+        
+        # أزرار التحكم
+        controls_frame = tk.Frame(main_frame, bg='#f0f0f0')
+        controls_frame.pack(fill='x', pady=10)
+        
+        ttk.Button(controls_frame, text="عرض التفاصيل", command=self.show_invoice_details).pack(side='right', padx=10)
+        ttk.Button(controls_frame, text="طباعة الفاتورة", command=self.print_selected_invoice).pack(side='right', padx=10)
+        ttk.Button(controls_frame, text="حفظ كـ PDF", command=self.save_selected_invoice_pdf).pack(side='right', padx=10)
+        ttk.Button(controls_frame, text="عودة", command=self.create_main_screen).pack(side='left', padx=10)
+        
+        # تحميل الفواتير
+        self.load_invoices()
+    
+    def load_invoices(self):
+        # مسح الجدول الحالي
+        for item in self.invoices_tree.get_children():
+            self.invoices_tree.delete(item)
+        
+        # تعبئة الجدول بالفواتير
+        for invoice in self.invoices:
+            self.invoices_tree.insert('', 'end', values=(
+                invoice['invoice_number'],
+                invoice['date'],
+                invoice['customer']['name'],
+                len(invoice['items']),
+                f"{invoice['total']:.2f}"
+            ))
+    
+    def search_invoices(self):
+        query = self.search_entry.get().lower()
+        
+        # مسح الجدول الحالي
+        for item in self.invoices_tree.get_children():
+            self.invoices_tree.delete(item)
+        
+        # البحث في الفواتير
+        for invoice in self.invoices:
+            if (query in invoice['invoice_number'].lower() or 
+                query in invoice['customer']['name'].lower() or 
+                query in invoice['date'].lower()):
+                self.invoices_tree.insert('', 'end', values=(
+                    invoice['invoice_number'],
+                    invoice['date'],
+                    invoice['customer']['name'],
+                    len(invoice['items']),
+                    f"{invoice['total']:.2f}"
+                ))
+    
+    def show_invoice_details(self):
+        selected_item = self.invoices_tree.selection()
+        if not selected_item:
+            messagebox.showerror("خطأ", "يجب تحديد فاتورة لعرضها")
+            return
+        
+        invoice_number = self.invoices_tree.item(selected_item)['values'][0]
+        
+        # البحث عن الفاتورة المحددة
+        for invoice in self.invoices:
+            if invoice['invoice_number'] == invoice_number:
+                self.display_invoice_details(invoice)
+                break
+    
+    def display_invoice_details(self, invoice):
+        self.clear_window()
+        
+        main_frame = tk.Frame(self.root, bg='#f0f0f0')
+        main_frame.pack(fill='both', expand=True, padx=10, pady=10)
+        
+        ttk.Label(main_frame, text=f"تفاصيل الفاتورة {invoice['invoice_number']}", style='Header.TLabel').pack(pady=10)
+        
+        # معلومات الفاتورة
+        info_frame = tk.Frame(main_frame, bg='#f0f0f0')
+        info_frame.pack(fill='x', pady=10)
+        
+        ttk.Label(info_frame, text=f"رقم الفاتورة: {invoice['invoice_number']}", background='#f0f0f0').pack(side='right', padx=10)
+        ttk.Label(info_frame, text=f"التاريخ: {invoice['date']}", background='#f0f0f0').pack(side='left', padx=10)
+        
+        # معلومات العميل
+        customer_frame = ttk.LabelFrame(main_frame, text="معلومات العميل", padding=10)
+        customer_frame.pack(fill='x', pady=10)
+        
+        ttk.Label(customer_frame, text=f"الاسم: {invoice['customer']['name']}").pack(anchor='w')
+        ttk.Label(customer_frame, text=f"الهاتف: {invoice['customer']['phone']}").pack(anchor='w')
+        ttk.Label(customer_frame, text=f"الرقم الضريبي: {invoice['customer']['tax_id']}").pack(anchor='w')
+        
+        # جدول الأصناف
+        items_frame = ttk.LabelFrame(main_frame, text="الأصناف", padding=10)
+        items_frame.pack(fill='both', expand=True, pady=10)
+        
+        columns = ("#", "الصنف", "الكمية", "السعر", "الضريبة %", "الإجمالي")
+        items_tree = ttk.Treeview(items_frame, columns=columns, show='headings', height=10)
+        
+        for col in columns:
+            items_tree.heading(col, text=col)
+            items_tree.column(col, width=100, anchor='center')
+        
+        items_tree.pack(fill='both', expand=True)
+        
+        # تعبئة الجدول بالأصناف
+        for i, item in enumerate(invoice['items'], 1):
+            items_tree.insert('', 'end', values=(
+                i,
+                item['name'],
+                item['quantity'],
+                f"{item['price']:.2f}",
+                f"{item['tax_percent']}%",
+                f"{item['total']:.2f}"
+            ))
+        
+        # الإجماليات
+        totals_frame = tk.Frame(main_frame, bg='#f0f0f0')
+        totals_frame.pack(fill='x', pady=10)
+        
+        ttk.Label(totals_frame, text=f"الإجمالي بدون ضريبة: {invoice['subtotal']:.2f}", background='#f0f0f0').pack(side='right', padx=10)
+        ttk.Label(totals_frame, text=f"الضريبة: {invoice['tax']:.2f}", background='#f0f0f0').pack(side='right', padx=10)
+        ttk.Label(totals_frame, text=f"الإجمالي مع الضريبة: {invoice['total']:.2f}", 
+                 background='#f0f0f0', font=('Arial', 12, 'bold')).pack(side='right', padx=10)
+        
+        # أزرار التحكم
+        controls_frame = tk.Frame(main_frame, bg='#f0f0f0')
+        controls_frame.pack(fill='x', pady=10)
+        
+        ttk.Button(controls_frame, text="طباعة الفاتورة", command=lambda: self.print_invoice_object(invoice)).pack(side='right', padx=10)
+        ttk.Button(controls_frame, text="حفظ كـ PDF", command=lambda: self.save_invoice_object_pdf(invoice)).pack(side='right', padx=10)
+        ttk.Button(controls_frame, text="عودة", command=self.show_invoices_list).pack(side='left', padx=10)
+    
+    def print_selected_invoice(self):
+        selected_item = self.invoices_tree.selection()
+        if not selected_item:
+            messagebox.showerror("خطأ", "يجب تحديد فاتورة للطباعة")
+            return
+        
+        invoice_number = self.invoices_tree.item(selected_item)['values'][0]
+        
+        # البحث عن الفاتورة المحددة
+        for invoice in self.invoices:
+            if invoice['invoice_number'] == invoice_number:
+                self.print_invoice_object(invoice)
+                break
+    
+    def save_selected_invoice_pdf(self):
+        selected_item = self.invoices_tree.selection()
+        if not selected_item:
+            messagebox.showerror("خطأ", "يجب تحديد فاتورة للحفظ")
+            return
+        
+        invoice_number = self.invoices_tree.item(selected_item)['values'][0]
+        
+        # البحث عن الفاتورة المحددة
+        for invoice in self.invoices:
+            if invoice['invoice_number'] == invoice_number:
+                self.save_invoice_object_pdf(invoice)
+                break
+    
+    def print_invoice_object(self, invoice):
+        try:
+            # إنشاء ملف PDF مؤقت
+            temp_pdf = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+            temp_pdf_path = temp_pdf.name
+            temp_pdf.close()
+            
+            # إنشاء PDF
+            pdf = FPDF()
+            pdf.add_page()
+            
+            try:
+                pdf.add_font('DejaVu', '', 'DejaVuSansCondensed.ttf', uni=True)
+                pdf.set_font('DejaVu', '', 14)
+            except:
+                pdf.add_font('Arial', '', 'arial.ttf', uni=True)
+                pdf.set_font('Arial', '', 14)
+            
+            # إضافة شعار الشركة إذا موجود
+            if self.company_info.get('logo') and os.path.exists(self.company_info['logo']):
+                pdf.image(self.company_info['logo'], x=10, y=8, w=30)
+                pdf.set_y(40)
+            
+            # معلومات الشركة
+            pdf.cell(0, 10, txt=self.company_info['name'], ln=1, align='C')
+            pdf.set_font_size(12)
+            pdf.cell(0, 8, txt=f"الرقم الضريبي: {self.company_info['tax_id']}", ln=1, align='C')
+            pdf.cell(0, 8, txt=f"الهاتف: {self.company_info['phone']}", ln=1, align='C')
+            pdf.cell(0, 8, txt=f"العنوان: {self.company_info['address']}", ln=1, align='C')
+            pdf.ln(10)
+            
+            # معلومات الفاتورة
+            pdf.set_font_size(14)
+            pdf.cell(0, 10, txt="فاتورة بيع", ln=1, align='C')
+            pdf.set_font_size(12)
+            pdf.cell(95, 8, txt=f"رقم الفاتورة: {invoice['invoice_number']}", ln=0, align='R')
+            pdf.cell(95, 8, txt=f"التاريخ: {invoice['date']}", ln=1, align='R')
+            pdf.ln(10)
+            
+            # معلومات العميل
+            pdf.cell(0, 8, txt=f"العميل: {invoice['customer']['name']}", ln=1, align='R')
+            pdf.cell(0, 8, txt=f"الهاتف: {invoice['customer']['phone']}", ln=1, align='R')
+            pdf.cell(0, 8, txt=f"الرقم الضريبي: {invoice['customer']['tax_id']}", ln=1, align='R')
+            pdf.ln(10)
+            
+            # جدول الأصناف
+            pdf.set_font_size(10)
+            
+            # عناوين الأعمدة
+            pdf.set_fill_color(200, 220, 255)
+            pdf.cell(15, 10, txt="#", border=1, align='C', fill=True)
+            pdf.cell(75, 10, txt="الصنف", border=1, align='C', fill=True)
+            pdf.cell(20, 10, txt="الكمية", border=1, align='C', fill=True)
+            pdf.cell(30, 10, txt="السعر", border=1, align='C', fill=True)
+            pdf.cell(25, 10, txt="الضريبة %", border=1, align='C', fill=True)
+            pdf.cell(25, 10, txt="الإجمالي", border=1, align='C', fill=True, ln=1)
+            
+            # بيانات الأصناف
+            pdf.set_fill_color(255, 255, 255)
+            for i, item in enumerate(invoice['items'], 1):
+                pdf.cell(15, 8, txt=str(i), border=1, align='C')
+                pdf.cell(75, 8, txt=item['name'], border=1, align='R')
+                pdf.cell(20, 8, txt=str(item['quantity']), border=1, align='C')
+                pdf.cell(30, 8, txt=f"{item['price']:.2f}", border=1, align='C')
+                pdf.cell(25, 8, txt=f"{item['tax_percent']}%", border=1, align='C')
+                pdf.cell(25, 8, txt=f"{item['total']:.2f}", border=1, align='C', ln=1)
+            
+            pdf.ln(10)
+            
+            # الإجماليات
+            pdf.set_font_size(12)
+            pdf.cell(135, 8, txt="الإجمالي بدون ضريبة:", align='R')
+            pdf.cell(25, 8, txt=f"{invoice['subtotal']:.2f}", align='R', ln=1)
+            pdf.cell(135, 8, txt="الضريبة:", align='R')
+            pdf.cell(25, 8, txt=f"{invoice['tax']:.2f}", align='R', ln=1)
+            pdf.set_font_size(14)
+            pdf.cell(135, 10, txt="الإجمالي مع الضريبة:", align='R')
+            pdf.cell(25, 10, txt=f"{invoice['total']:.2f}", align='R', ln=1)
+            
+            # تذييل الصفحة
+            pdf.set_y(-20)
+            pdf.set_font_size(10)
+            pdf.cell(0, 8, txt="شكراً لتعاملكم معنا", ln=1, align='C')
+            pdf.cell(0, 8, txt=f"للاستفسار يرجى الاتصال على: {self.company_info['phone']}", ln=1, align='C')
+            
+            pdf.output(temp_pdf_path)
+            
+            # الطباعة باستخدام الطابعة الافتراضية
+            printer_name = win32print.GetDefaultPrinter()
+            win32api.ShellExecute(
+                0,
+                "print",
+                temp_pdf_path,
+                f'/d:"{printer_name}"',
+                ".",
+                0
+            )
+            
+            messagebox.showinfo("نجاح", "تم إرسال الفاتورة إلى الطابعة بنجاح")
+            
+            # حذف الملف المؤقت بعد 5 ثواني
+            self.root.after(5000, lambda: os.unlink(temp_pdf_path))
+            
+        except Exception as e:
+            messagebox.showerror("خطأ", f"حدث خطأ أثناء الطباعة: {str(e)}")
+            if os.path.exists(temp_pdf_path):
+                os.unlink(temp_pdf_path)
+    
+    def save_invoice_object_pdf(self, invoice):
+        # إنشاء ملف PDF
+        pdf = FPDF()
+        pdf.add_page()
+        
+        try:
+            pdf.add_font('DejaVu', '', 'DejaVuSansCondensed.ttf', uni=True)
+            pdf.set_font('DejaVu', '', 14)
+        except:
+            pdf.add_font('Arial', '', 'arial.ttf', uni=True)
+            pdf.set_font('Arial', '', 14)
+        
+        # إضافة شعار الشركة إذا موجود
+        if self.company_info.get('logo') and os.path.exists(self.company_info['logo']):
+            pdf.image(self.company_info['logo'], x=10, y=8, w=30)
+            pdf.set_y(40)
+        
+        # معلومات الشركة
+        pdf.cell(0, 10, txt=self.company_info['name'], ln=1, align='C')
+        pdf.set_font_size(12)
+        pdf.cell(0, 8, txt=f"الرقم الضريبي: {self.company_info['tax_id']}", ln=1, align='C')
+        pdf.cell(0, 8, txt=f"الهاتف: {self.company_info['phone']}", ln=1, align='C')
+        pdf.cell(0, 8, txt=f"العنوان: {self.company_info['address']}", ln=1, align='C')
+        pdf.ln(10)
+        
+        # معلومات الفاتورة
+        pdf.set_font_size(14)
+        pdf.cell(0, 10, txt="فاتورة بيع", ln=1, align='C')
+        pdf.set_font_size(12)
+        pdf.cell(95, 8, txt=f"رقم الفاتورة: {invoice['invoice_number']}", ln=0, align='R')
+        pdf.cell(95, 8, txt=f"التاريخ: {invoice['date']}", ln=1, align='R')
+        pdf.ln(10)
+        
+        # معلومات العميل
+        pdf.cell(0, 8, txt=f"العميل: {invoice['customer']['name']}", ln=1, align='R')
+        pdf.cell(0, 8, txt=f"الهاتف: {invoice['customer']['phone']}", ln=1, align='R')
+        pdf.cell(0, 8, txt=f"الرقم الضريبي: {invoice['customer']['tax_id']}", ln=1, align='R')
+        pdf.ln(10)
+        
+        # جدول الأصناف
+        pdf.set_font_size(10)
+        
+        # عناوين الأعمدة
+        pdf.set_fill_color(200, 220, 255)
+        pdf.cell(15, 10, txt="#", border=1, align='C', fill=True)
+        pdf.cell(75, 10, txt="الصنف", border=1, align='C', fill=True)
+        pdf.cell(20, 10, txt="الكمية", border=1, align='C', fill=True)
+        pdf.cell(30, 10, txt="السعر", border=1, align='C', fill=True)
+        pdf.cell(25, 10, txt="الضريبة %", border=1, align='C', fill=True)
+        pdf.cell(25, 10, txt="الإجمالي", border=1, align='C', fill=True, ln=1)
+        
+        # بيانات الأصناف
+        pdf.set_fill_color(255, 255, 255)
+        for i, item in enumerate(invoice['items'], 1):
+            pdf.cell(15, 8, txt=str(i), border=1, align='C')
+            pdf.cell(75, 8, txt=item['name'], border=1, align='R')
+            pdf.cell(20, 8, txt=str(item['quantity']), border=1, align='C')
+            pdf.cell(30, 8, txt=f"{item['price']:.2f}", border=1, align='C')
+            pdf.cell(25, 8, txt=f"{item['tax_percent']}%", border=1, align='C')
+            pdf.cell(25, 8, txt=f"{item['total']:.2f}", border=1, align='C', ln=1)
+        
+        pdf.ln(10)
+        
+        # الإجماليات
+        pdf.set_font_size(12)
+        pdf.cell(135, 8, txt="الإجمالي بدون ضريبة:", align='R')
+        pdf.cell(25, 8, txt=f"{invoice['subtotal']:.2f}", align='R', ln=1)
+        pdf.cell(135, 8, txt="الضريبة:", align='R')
+        pdf.cell(25, 8, txt=f"{invoice['tax']:.2f}", align='R', ln=1)
+        pdf.set_font_size(14)
+        pdf.cell(135, 10, txt="الإجمالي مع الضريبة:", align='R')
+        pdf.cell(25, 10, txt=f"{invoice['total']:.2f}", align='R', ln=1)
+        
+        # تذييل الصفحة
+        pdf.set_y(-20)
+        pdf.set_font_size(10)
+        pdf.cell(0, 8, txt="شكراً لتعاملكم معنا", ln=1, align='C')
+        pdf.cell(0, 8, txt=f"للاستفسار يرجى الاتصال على: {self.company_info['phone']}", ln=1, align='C')
+        
+        # حفظ الملف
+        default_filename = f"invoice_{invoice['invoice_number']}.pdf"
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF Files", "*.pdf")],
+            initialfile=default_filename
+        )
+        
+        if file_path:
+            pdf.output(file_path)
+            messagebox.showinfo("نجاح", f"تم حفظ الفاتورة كملف PDF في:\n{file_path}")
+            webbrowser.open(file_path)
+    
+    def show_inventory_menu(self):
+        self.clear_window()
+        
+        main_frame = tk.Frame(self.root, bg='#f0f0f0')
+        main_frame.pack(fill='both', expand=True, padx=10, pady=10)
+        
+        ttk.Label(main_frame, text="إدارة المخزون", style='Header.TLabel').pack(pady=10)
+        
+        # إطار البحث
+        search_frame = tk.Frame(main_frame, bg='#f0f0f0')
+        search_frame.pack(fill='x', pady=10)
+        
+        ttk.Label(search_frame, text="بحث:", background='#f0f0f0').pack(side='left', padx=5)
+        self.inv_search_entry = ttk.Entry(search_frame, width=30)
+        self.inv_search_entry.pack(side='left', padx=5)
+        self.inv_search_entry.bind('<KeyRelease>', lambda e: self.search_products())
+        
+        ttk.Button(search_frame, text="عرض الكل", command=self.load_products).pack(side='left', padx=5)
+        ttk.Button(search_frame, text="إضافة منتج جديد", command=self.add_product).pack(side='right', padx=5)
+        
+        # جدول المنتجات
+        columns = ("الباركود", "اسم المنتج", "سعر الشراء", "سعر البيع", "الكمية", "الضريبة %")
+        self.products_tree = ttk.Treeview(main_frame, columns=columns, show='headings', height=15)
+        
+        for col in columns:
+            self.products_tree.heading(col, text=col)
+            self.products_tree.column(col, width=120, anchor='center')
+        
+        self.products_tree.pack(fill='both', expand=True, padx=10, pady=10)
+        
+        # شريط التمرير
+        scrollbar = ttk.Scrollbar(main_frame, orient='vertical', command=self.products_tree.yview)
+        scrollbar.pack(side='right', fill='y')
+        self.products_tree.configure(yscrollcommand=scrollbar.set)
+        
+        # أزرار التحكم
+        controls_frame = tk.Frame(main_frame, bg='#f0f0f0')
+        controls_frame.pack(fill='x', pady=10)
+        
+        ttk.Button(controls_frame, text="تعديل المنتج", command=self.edit_selected_product).pack(side='right', padx=10)
+        ttk.Button(controls_frame, text="حذف المنتج", command=self.delete_product).pack(side='right', padx=10)
+        ttk.Button(controls_frame, text="عودة", command=self.create_main_screen).pack(side='left', padx=10)
+        
+        # تحميل المنتجات
+        self.load_products()
+    
+    def load_products(self):
+        # مسح الجدول الحالي
+        for item in self.products_tree.get_children():
+            self.products_tree.delete(item)
+        
+        # تعبئة الجدول بالمنتجات
+        for product in self.products:
+            self.products_tree.insert('', 'end', values=(
+                product['barcode'],
+                product['name'],
+                f"{product['purchase_price']:.2f}",
+                f"{product['sale_price']:.2f}",
+                product['quantity'],
+                product['tax']
+            ))
+    
+    def search_products(self):
+        query = self.inv_search_entry.get().lower()
+        
+        # مسح الجدول الحالي
+        for item in self.products_tree.get_children():
+            self.products_tree.delete(item)
+        
+        # البحث في المنتجات
+        for product in self.products:
+            if (query in product['name'].lower() or 
+                query in product['barcode'].lower()):
+                self.products_tree.insert('', 'end', values=(
+                    product['barcode'],
+                    product['name'],
+                    f"{product['purchase_price']:.2f}",
+                    f"{product['sale_price']:.2f}",
+                    product['quantity'],
+                    product['tax']
+                ))
+    
+    def add_product(self):
+        # نافذة إضافة منتج
+        add_window = tk.Toplevel(self.root)
+        add_window.title("إضافة منتج جديد")
+        add_window.geometry("400x400")
+        
+        # حقول الإدخال
+        ttk.Label(add_window, text="الباركود:").grid(row=0, column=0, padx=10, pady=10, sticky='e')
+        barcode_entry = ttk.Entry(add_window)
+        barcode_entry.grid(row=0, column=1, padx=10, pady=10, sticky='ew')
+        barcode_entry.insert(0, self.generate_barcode())
+        
+        ttk.Label(add_window, text="اسم المنتج:").grid(row=1, column=0, padx=10, pady=10, sticky='e')
+        name_entry = ttk.Entry(add_window)
+        name_entry.grid(row=1, column=1, padx=10, pady=10, sticky='ew')
+        
+        ttk.Label(add_window, text="سعر الشراء:").grid(row=2, column=0, padx=10, pady=10, sticky='e')
+        purchase_entry = ttk.Entry(add_window)
+        purchase_entry.grid(row=2, column=1, padx=10, pady=10, sticky='ew')
+        
+        ttk.Label(add_window, text="سعر البيع:").grid(row=3, column=0, padx=10, pady=10, sticky='e')
+        sale_entry = ttk.Entry(add_window)
+        sale_entry.grid(row=3, column=1, padx=10, pady=10, sticky='ew')
+        
+        ttk.Label(add_window, text="الكمية:").grid(row=4, column=0, padx=10, pady=10, sticky='e')
+        qty_entry = ttk.Entry(add_window)
+        qty_entry.grid(row=4, column=1, padx=10, pady=10, sticky='ew')
+        qty_entry.insert(0, "0")
+        
+        ttk.Label(add_window, text="الضريبة %:").grid(row=5, column=0, padx=10, pady=10, sticky='e')
+        tax_entry = ttk.Entry(add_window)
+        tax_entry.grid(row=5, column=1, padx=10, pady=10, sticky='ew')
+        tax_entry.insert(0, "15")
+        
+        # أزرار الحفظ والإغلاق
+        btn_frame = tk.Frame(add_window)
+        btn_frame.grid(row=6, column=0, columnspan=2, pady=10)
+        
+        ttk.Button(btn_frame, text="حفظ", command=lambda: self.save_product(
+            barcode_entry.get(),
+            name_entry.get(),
+            purchase_entry.get(),
+            sale_entry.get(),
+            qty_entry.get(),
+            tax_entry.get(),
+            add_window
+        )).pack(side='right', padx=10)
+        
+        ttk.Button(btn_frame, text="إغلاق", command=add_window.destroy).pack(side='left', padx=10)
+    
+    def generate_barcode(self):
+        # توليد باركود عشوائي
+        letters = random.choice(string.ascii_uppercase)
+        numbers = ''.join(random.choice(string.digits) for _ in range(6))
+        return f"{letters}{numbers}"
+    
+    def save_product(self, barcode, name, purchase_str, sale_str, qty_str, tax_str, window):
+        try:
+            purchase = float(purchase_str)
+            sale = float(sale_str)
+            qty = int(qty_str)
+            tax = float(tax_str)
+            
+            if not name or not barcode:
+                messagebox.showerror("خطأ", "يجب إدخال اسم المنتج والباركود")
+                return
+                
+            if purchase <= 0 or sale <= 0 or qty < 0 or tax < 0:
+                messagebox.showerror("خطأ", "القيم يجب أن تكون موجبة")
+                return
+                
+            # التحقق من عدم تكرار الباركود
+            for product in self.products:
+                if product['barcode'] == barcode:
+                    messagebox.showerror("خطأ", "هذا الباركود مسجل مسبقاً")
+                    return
+            
+            # إضافة المنتج
+            product = {
+                'barcode': barcode,
+                'name': name,
+                'purchase_price': purchase,
+                'sale_price': sale,
+                'quantity': qty,
+                'tax': tax
+            }
+            
+            self.products.append(product)
+            self.save_data()
+            self.load_products()
+            window.destroy()
+            messagebox.showinfo("نجاح", "تم إضافة المنتج بنجاح")
+            
+        except ValueError:
+            messagebox.showerror("خطأ", "يجب إدخال قيم رقمية صحيحة")
+    
+    def edit_selected_product(self):
+        selected_item = self.products_tree.selection()
+        if not selected_item:
+            messagebox.showerror("خطأ", "يجب تحديد منتج للتعديل")
+            return
+        
+        item = self.products_tree.item(selected_item)['values']
+        barcode = item[0]
+        
+        # البحث عن المنتج المحدد
+        for product in self.products:
+            if product['barcode'] == barcode:
+                self.edit_product_window(product, selected_item)
+                break
+    
+    def edit_product_window(self, product, tree_item):
+        # نافذة تعديل المنتج
+        edit_window = tk.Toplevel(self.root)
+        edit_window.title("تعديل المنتج")
+        edit_window.geometry("400x400")
+        
+        # حقول الإدخال
+        ttk.Label(edit_window, text="الباركود:").grid(row=0, column=0, padx=10, pady=10, sticky='e')
+        barcode_entry = ttk.Entry(edit_window)
+        barcode_entry.grid(row=0, column=1, padx=10, pady=10, sticky='ew')
+        barcode_entry.insert(0, product['barcode'])
+        barcode_entry.config(state='readonly')
+        
+        ttk.Label(edit_window, text="اسم المنتج:").grid(row=1, column=0, padx=10, pady=10, sticky='e')
+        name_entry = ttk.Entry(edit_window)
+        name_entry.grid(row=1, column=1, padx=10, pady=10, sticky='ew')
+        name_entry.insert(0, product['name'])
+        
+        ttk.Label(edit_window, text="سعر الشراء:").grid(row=2, column=0, padx=10, pady=10, sticky='e')
+        purchase_entry = ttk.Entry(edit_window)
+        purchase_entry.grid(row=2, column=1, padx=10, pady=10, sticky='ew')
+        purchase_entry.insert(0, str(product['purchase_price']))
+        
+        ttk.Label(edit_window, text="سعر البيع:").grid(row=3, column=0, padx=10, pady=10, sticky='e')
+        sale_entry = ttk.Entry(edit_window)
+        sale_entry.grid(row=3, column=1, padx=10, pady=10, sticky='ew')
+        sale_entry.insert(0, str(product['sale_price']))
+        
+        ttk.Label(edit_window, text="الكمية:").grid(row=4, column=0, padx=10, pady=10, sticky='e')
+        qty_entry = ttk.Entry(edit_window)
+        qty_entry.grid(row=4, column=1, padx=10, pady=10, sticky='ew')
+        qty_entry.insert(0, str(product['quantity']))
+        
+        ttk.Label(edit_window, text="الضريبة %:").grid(row=5, column=0, padx=10, pady=10, sticky='e')
+        tax_entry = ttk.Entry(edit_window)
+        tax_entry.grid(row=5, column=1, padx=10, pady=10, sticky='ew')
+        tax_entry.insert(0, str(product['tax']))
+        
+        # أزرار الحفظ والإغلاق
+        btn_frame = tk.Frame(edit_window)
+        btn_frame.grid(row=6, column=0, columnspan=2, pady=10)
+        
+        ttk.Button(btn_frame, text="حفظ", command=lambda: self.update_product(
+            product,
+            name_entry.get(),
+            purchase_entry.get(),
+            sale_entry.get(),
+            qty_entry.get(),
+            tax_entry.get(),
+            tree_item,
+            edit_window
+        )).pack(side='right', padx=10)
+        
+        ttk.Button(btn_frame, text="إغلاق", command=edit_window.destroy).pack(side='left', padx=10)
+    
+    def update_product(self, product, name, purchase_str, sale_str, qty_str, tax_str, tree_item, window):
+        try:
+            purchase = float(purchase_str)
+            sale = float(sale_str)
+            qty = int(qty_str)
+            tax = float(tax_str)
+            
+            if not name:
+                messagebox.showerror("خطأ", "يجب إدخال اسم المنتج")
+                return
+                
+            if purchase <= 0 or sale <= 0 or qty < 0 or tax < 0:
+                messagebox.showerror("خطأ", "القيم يجب أن تكون موجبة")
+                return
+                
+            # تحديث بيانات المنتج
+            product['name'] = name
+            product['purchase_price'] = purchase
+            product['sale_price'] = sale
+            product['quantity'] = qty
+            product['tax'] = tax
+            
+            # تحديث الجدول
+            self.products_tree.item(tree_item, values=(
+                product['barcode'],
+                name,
+                f"{purchase:.2f}",
+                f"{sale:.2f}",
+                qty,
+                tax
+            ))
+            
+            self.save_data()
+            window.destroy()
+            messagebox.showinfo("نجاح", "تم تحديث المنتج بنجاح")
+            
+        except ValueError:
+            messagebox.showerror("خطأ", "يجب إدخال قيم رقمية صحيحة")
+    
+    def delete_product(self):
+        selected_item = self.products_tree.selection()
+        if not selected_item:
+            messagebox.showerror("خطأ", "يجب تحديد منتج للحذف")
+            return
+        
+        item = self.products_tree.item(selected_item)['values']
+        barcode = item[0]
+        name = item[1]
+        
+        if messagebox.askyesno("تأكيد", f"هل أنت متأكد من حذف المنتج '{name}'؟"):
+            # البحث عن المنتج وحذفه
+            for i, product in enumerate(self.products):
+                if product['barcode'] == barcode:
+                    del self.products[i]
+                    break
+            
+            self.save_data()
+            self.load_products()
+            messagebox.showinfo("نجاح", "تم حذف المنتج بنجاح")
+    
+    def show_reports_menu(self):
+        self.clear_window()
+        
+        main_frame = tk.Frame(self.root, bg='#f0f0f0')
+        main_frame.pack(fill='both', expand=True, padx=10, pady=10)
+        
+        ttk.Label(main_frame, text="التقارير", style='Header.TLabel').pack(pady=20)
+        
+        # أزرار التقارير
+        reports_frame = tk.Frame(main_frame, bg='#f0f0f0')
+        reports_frame.pack(pady=20)
+        
+        ttk.Button(reports_frame, text="تقرير المبيعات اليومية", command=lambda: self.generate_sales_report('daily'), width=25).grid(row=0, column=0, padx=10, pady=10)
+        ttk.Button(reports_frame, text="تقرير المبيعات الأسبوعية", command=lambda: self.generate_sales_report('weekly'), width=25).grid(row=0, column=1, padx=10, pady=10)
+        ttk.Button(reports_frame, text="تقرير المبيعات الشهرية", command=lambda: self.generate_sales_report('monthly'), width=25).grid(row=1, column=0, padx=10, pady=10)
+        ttk.Button(reports_frame, text="تقرير المبيعات السنوية", command=lambda: self.generate_sales_report('yearly'), width=25).grid(row=1, column=1, padx=10, pady=10)
+        
+        # زر العودة
+        ttk.Button(main_frame, text="عودة", command=self.create_main_screen).pack(side='bottom', pady=20)
+    
+    def generate_sales_report(self, period):
+        now = datetime.now()
+        filtered_invoices = []
+        
+        if period == 'daily':
+            title = f"تقرير المبيعات اليومية - {now.strftime('%Y/%m/%d')}"
+            for invoice in self.invoices:
+                if invoice['date'].startswith(now.strftime('%Y/%m/%d')):
+                    filtered_invoices.append(invoice)
+        elif period == 'weekly':
+            title = f"تقرير المبيعات الأسبوعية - الأسبوع {now.isocalendar()[1]} {now.year}"
+            # للتبسيط، نأخذ الفواتير في آخر 7 أيام
+            for invoice in self.invoices:
+                inv_date = datetime.strptime(invoice['date'].split()[0], '%Y/%m/%d')
+                if (now - inv_date).days <= 7:
+                    filtered_invoices.append(invoice)
+        elif period == 'monthly':
+            title = f"تقرير المبيعات الشهرية - {now.strftime('%Y/%m')}"
+            for invoice in self.invoices:
+                if invoice['date'].startswith(now.strftime('%Y/%m')):
+                    filtered_invoices.append(invoice)
+        elif period == 'yearly':
+            title = f"تقرير المبيعات السنوية - {now.year}"
+            for invoice in self.invoices:
+                if invoice['date'].startswith(str(now.year)):
+                    filtered_invoices.append(invoice)
+        
+        # إنشاء ملف PDF للتقرير
+        pdf = FPDF()
+        pdf.add_page()
+        
+        try:
+            pdf.add_font('DejaVu', '', 'DejaVuSansCondensed.ttf', uni=True)
+            pdf.set_font('DejaVu', '', 14)
+        except:
+            pdf.add_font('Arial', '', 'arial.ttf', uni=True)
+            pdf.set_font('Arial', '', 14)
+        
+        # عنوان التقرير
+        pdf.cell(0, 10, txt=title, ln=1, align='C')
+        pdf.set_font_size(12)
+        pdf.cell(0, 8, txt=f"تاريخ الإصدار: {now.strftime('%Y/%m/%d %H:%M')}", ln=1, align='C')
+        pdf.ln(10)
+        
+        # معلومات الشركة
+        pdf.cell(0, 8, txt=self.company_info['name'], ln=1, align='C')
+        pdf.cell(0, 8, txt=f"الرقم الضريبي: {self.company_info['tax_id']}", ln=1, align='C')
+        pdf.ln(10)
+        
+        # ملخص التقرير
+        total_invoices = len(filtered_invoices)
+        total_sales = sum(inv['total'] for inv in filtered_invoices)
+        total_tax = sum(inv['tax'] for inv in filtered_invoices)
+        
+        pdf.cell(0, 8, txt=f"عدد الفواتير: {total_invoices}", ln=1, align='R')
+        pdf.cell(0, 8, txt=f"إجمالي المبيعات: {total_sales:.2f}", ln=1, align='R')
+        pdf.cell(0, 8, txt=f"إجمالي الضريبة: {total_tax:.2f}", ln=1, align='R')
+        pdf.ln(15)
+        
+        # جدول الفواتير
+        if filtered_invoices:
+            pdf.set_font_size(10)
+            
+            # عناوين الأعمدة
+            pdf.set_fill_color(200, 220, 255)
+            pdf.cell(30, 10, txt="رقم الفاتورة", border=1, align='C', fill=True)
+            pdf.cell(40, 10, txt="التاريخ", border=1, align='C', fill=True)
+            pdf.cell(60, 10, txt="العميل", border=1, align='C', fill=True)
+            pdf.cell(30, 10, txt="الإجمالي", border=1, align='C', fill=True)
+            pdf.cell(30, 10, txt="الضريبة", border=1, align='C', fill=True, ln=1)
+            
+            # بيانات الفواتير
+            pdf.set_fill_color(255, 255, 255)
+            for inv in filtered_invoices:
+                pdf.cell(30, 8, txt=inv['invoice_number'], border=1, align='C')
+                pdf.cell(40, 8, txt=inv['date'], border=1, align='C')
+                pdf.cell(60, 8, txt=inv['customer']['name'], border=1, align='R')
+                pdf.cell(30, 8, txt=f"{inv['total']:.2f}", border=1, align='C')
+                pdf.cell(30, 8, txt=f"{inv['tax']:.2f}", border=1, align='C', ln=1)
+        else:
+            pdf.cell(0, 10, txt="لا توجد فواتير في الفترة المحددة", ln=1, align='C')
+        
+        # حفظ الملف
+        default_filename = f"sales_report_{period}_{now.strftime('%Y%m%d')}.pdf"
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF Files", "*.pdf")],
+            initialfile=default_filename
+        )
+        
+        if file_path:
+            pdf.output(file_path)
+            messagebox.showinfo("نجاح", f"تم حفظ التقرير كملف PDF في:\n{file_path}")
+            webbrowser.open(file_path)
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    
+    # تحسين مظهر الواجهة
+    root.tk.call('tk', 'scaling', 1.5)  # تحسين القياس للشاشات عالية الدقة
+    root.style = ttk.Style()
+    root.style.theme_use('clam')  # استخدام سمة أكثر حداثة
+    
+    app = AccountingApp(root)
+    root.mainloop()
